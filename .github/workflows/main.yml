@@ -1,0 +1,21 @@
+name: Android APK Derleme
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dosyaları Al
+        uses: actions/checkout@v3
+
+      - name: Buildozer ile APK Üret
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android debug
+          buildozer_version: master
+
+      - name: APK'yı Çıktı Olarak Ver
+        uses: actions/upload-artifact@v3
+        with:
+          name: SifirBird-APK
+          path: bin/*.apk
