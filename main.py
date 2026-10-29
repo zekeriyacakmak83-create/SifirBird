@@ -4,14 +4,14 @@ import random
 import json
 import os
 
+pygame.mixer.pre_init(44100, -16, 2, 512)
+pygame.init()
 pygame.init()
 pygame.mixer.init()
 
-genislik = 400
-yukseklik = 700
-ekran = ekran = pygame.display.set_mode(
-    (GENISLIK, YUKSEKLIK), pygame.SCALED | pygame.FULLSCREEN
-)
+ekran = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+genislik = ekran.get_width()
+yukseklik = ekran.get_height()
 pygame.display.set_caption("SıfırBird")
 
 saat = pygame.time.Clock()
