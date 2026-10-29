@@ -53,14 +53,15 @@ def fonlu_yazi_ciz(yuzey, metin, yazi_fontu, renk, x, y):
     yuzey.blit(yazi_fontu.render(metin, True, siyah), (x + 2, y + 2))
     yuzey.blit(yazi_fontu.render(metin, True, renk), (x, y))
 
-def resim_yukle(dosya_adi, boyut):
-    try:
-        resim = pygame.image.load(dosya_adi).convert_alpha()
-        return pygame.transform.scale(resim, boyut)
-    except FileNotFoundError:
-        yuzey = pygame.Surface(boyut)
-        yuzey.fill((255, 0, 255) if "png" in dosya_adi else (100, 100, 100))
-        return yuzey
+ddef resim_yukle(dosya_adi, boyut):
+  try:
+    resim = pygame.image.load(dosya_adi).convert_alpha()
+    return pygame.transform.scale(resim, boyut)
+  except (pygame.error, FileNotFoundError):
+    # Resim dosyası bulunamazsa oyun çökmesin diye geçici yüzey oluşturur
+    yuzey = pygame.Surface(boyut)
+    yuzey.fill((50, 50, 50))
+    return yuzey
 
 harita_gorselleri = {
     "mahalle": resim_yukle("mahalle.png", (genislik, yukseklik)),
