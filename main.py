@@ -9,7 +9,9 @@ pygame.mixer.init()
 
 genislik = 400
 yukseklik = 700
-ekran = pygame.display.set_mode((genislik, yukseklik))
+ekran = ekran = pygame.display.set_mode(
+    (GENISLIK, YUKSEKLIK), pygame.SCALED | pygame.FULLSCREEN
+)
 pygame.display.set_caption("SıfırBird")
 
 saat = pygame.time.Clock()
