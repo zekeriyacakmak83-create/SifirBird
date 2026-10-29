@@ -17,9 +17,9 @@ pygame.display.set_caption("SıfırBird")
 saat = pygame.time.Clock()
 fps = 60
 
-font = pygame.font.SysFont("Arial", 30, bold=True)
-kucuk_font = pygame.font.SysFont("Arial", 18, bold=True) 
-en_kucuk_font = pygame.font.SysFont("Arial", 14, bold=True) 
+font = pygame.font.Font(None, 30)
+kucuk_font = pygame.font.Font(None, 18)
+en_kucuk_font = pygame.font.Font(None, 14)
 
 def muzik_cal(dosya_adi, dongu=0): 
     try:
