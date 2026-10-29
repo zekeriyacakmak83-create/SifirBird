@@ -81,7 +81,7 @@ osx.kivy_version = 2.2.0
 #
 
 # (bool) Indicate if the application should be fullscreen or not
-fullscreen = 0
+fullscreen = 1
 
 # (string) Presplash background color (for android toolchain)
 # Supported formats are: #RRGGBB #AARRGGBB or one of the following names:
@@ -463,7 +463,7 @@ warn_on_root = 1
 #
 #   Buildozer supports lists - i.e.
 #       [app]
-#       source.include_exts = py,png,jpg
+#       source.include_exts = py,png,jpg,kv,atlas,mp3,wav,ttf
 #       #                     ^ This is a list.
 #
 #       [app:source.include_exts]
