@@ -8,6 +8,11 @@ jobs:
       - name: Dosyaları Al
         uses: actions/checkout@v4
 
+      - name: Python 3.10 Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
       - name: Kurulumları Yap
         run: |
           sudo apt-get update
