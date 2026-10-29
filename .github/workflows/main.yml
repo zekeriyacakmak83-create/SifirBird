@@ -8,6 +8,12 @@ jobs:
       - name: Dosyaları Al
         uses: actions/checkout@v4
 
+      - name: Java 17 Ayarla
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Sistem Bağımlılıklarını Kur
         run: |
           sudo dpkg --add-architecture i386
@@ -22,7 +28,6 @@ jobs:
             libffi-dev \
             libssl-dev \
             zlib1g-dev \
-            openjdk-17-jdk \
             zip \
             unzip \
             autoconf \
@@ -41,7 +46,7 @@ jobs:
         run: |
           export PATH=$PATH:~/.local/bin
           rm -rf .buildozer bin
-          buildozer android debug
+          yes | buildozer android debug
 
       - name: Çıktıyı Al
         uses: actions/upload-artifact@v4
