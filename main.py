@@ -4,42 +4,77 @@ import random
 import sys
 import pygame
 
-pygame.mixer.pre_init(44100, -16, 2, 512)
+# Android ses gecikmesini ve çökmesini önleyen ideal mixer ayarı
+pygame.mixer.pre_init(44100, -16, 2, 1024)
 pygame.init()
 pygame.mixer.init()
 
-# --- PERFORMANS VE AĞIR ÇEKİM ÇÖZÜMÜ ---
-# Oyun mantığını sabit 400x700 çözünürlükte koşturuyoruz, böylece telefon asla kasmaz!
-MANTIK_GENISLIK = 400
-MANTIK_YUKSEKLIK = 700
+# Çalışma dizinini sabitle (Resim, ses ve kayıt dosyalarının bulunabilmesi için şart)
+DIZIN = os.path.dirname(os.path.abspath(__file__))
 
-ekran = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-gercek_genislik, gercek_yukseklik = ekran.get_size()
 
-# Ekrana ölçekleme yapacağımız sanal yüzey
-oyun_yuzeyi = pygame.Surface((MANTIK_GENISLIK, MANTIK_YUKSEKLIK))
+def tam_yol(dosya_adi):
+  return os.path.join(DIZIN, dosya_adi)
+
+
+# --- EKRAN ORANINI TELEFONA GÖRE OTOMATİK AYARLAMA (TAŞMAYI VE KASMAYI ÖNLER) ---
+bilgi = pygame.display.Info()
+ekran_orani = (
+    bilgi.current_h / bilgi.current_w if bilgi.current_w > 0 else 1.75
+)
+if ekran_orani < 1:  # Cihaz yatay algılanırsa oranı düzelt
+  ekran_orani = bilgi.current_w / bilgi.current_h
+
+genislik = 400
+yukseklik = int(genislik * ekran_orani)
+
+# Donanım hızlandırmalı (GPU) tam ekran modu - Sıfır kasma ve sıfır taşma!
+try:
+  ekran = pygame.display.set_mode(
+      (genislik, yukseklik), pygame.SCALED | pygame.FULLSCREEN
+  )
+except pygame.error:
+  ekran = pygame.display.set_mode((genislik, yukseklik))
+
 pygame.display.set_caption("SıfırBird")
 
 saat = pygame.time.Clock()
 fps = 60
 
-font = pygame.font.Font(None, 30)
-kucuk_font = pygame.font.Font(None, 18)
-en_kucuk_font = pygame.font.Font(None, 14)
+
+# --- MODERN VE TÜRKÇE UYUMLU ANDROID FONT YÜKLEYİCİ ---
+def font_olustur(boyut, kalin=True):
+  for f_adi in ["sans-serif", "roboto", "droidsans", "arial"]:
+    try:
+      f = pygame.font.SysFont(f_adi, boyut, bold=kalin)
+      if f:
+        return f
+    except:
+      continue
+  return pygame.font.Font(None, boyut + 6)
 
 
+font = font_olustur(24, True)
+kucuk_font = font_olustur(16, True)
+en_kucuk_font = font_olustur(13, False)
+
+
+# --- TAM YOLLU SES VE MÜZİK FONKSİYONLARI ---
 def muzik_cal(dosya_adi, dongu=0):
   try:
-    pygame.mixer.music.load(dosya_adi)
+    pygame.mixer.music.load(tam_yol(dosya_adi))
+    pygame.mixer.music.set_volume(0.8)
     pygame.mixer.music.play(dongu)
-  except pygame.error:
+  except Exception:
     pass
 
 
 def ses_yukle(dosya_adi):
   try:
-    return pygame.mixer.Sound(dosya_adi)
-  except:
+    ses = pygame.mixer.Sound(tam_yol(dosya_adi))
+    ses.set_volume(1.0)
+    return ses
+  except Exception:
 
     class BosSes:
 
@@ -49,53 +84,58 @@ def ses_yukle(dosya_adi):
     return BosSes()
 
 
-skor_sesi = ses_yukle("skor.wav")  # Android için wav/ogg önerilir
+skor_sesi = ses_yukle("skor.mp3")
+olum_sesi = ses_yukle("olum.mp3")
 
 
-def fonlu_yazi_ciz(yuzey, metin, yazi_fontu, renk, x, y):
-  siyah = (0, 0, 0)
-  yuzey.blit(yazi_fontu.render(metin, True, siyah), (x - 2, y - 2))
-  yuzey.blit(yazi_fontu.render(metin, True, siyah), (x + 2, y - 2))
-  yuzey.blit(yazi_fontu.render(metin, True, siyah), (x - 2, y + 2))
-  yuzey.blit(yazi_fontu.render(metin, True, siyah), (x + 2, y + 2))
-  yuzey.blit(yazi_fontu.render(metin, True, renk), (x, y))
+# Yazıların iç içe geçmesini önleyen temiz gölgeli yazı fonksiyonu
+def fonlu_yazi_ciz(yuzey, metin, yazi_fontu, renk, x, y, ortala=False):
+  golge = yazi_fontu.render(metin, True, (15, 15, 15))
+  ana_metin = yazi_fontu.render(metin, True, renk)
+  if ortala:
+    x = x - (ana_metin.get_width() // 2)
+  yuzey.blit(golge, (x + 2, y + 2))
+  yuzey.blit(ana_metin, (x, y))
 
 
-def resim_yukle(dosya_adi, boyut):
+# Arka planlar için şeffaflıksız (hızlı) yükleme, karakterler için şeffaf yükleme
+def resim_yukle(dosya_adi, boyut, seffaf=True):
   try:
-    dizin = os.path.dirname(os.path.abspath(__file__))
-    tam_yol = os.path.join(dizin, dosya_adi)
-    resim = pygame.image.load(tam_yol).convert_alpha()
-    return pygame.transform.scale(resim, boyut)
-  except:
+    ham_resim = pygame.image.load(tam_yol(dosya_adi))
+    resim = ham_resim.convert_alpha() if seffaf else ham_resim.convert()
+    return pygame.transform.smoothscale(resim, boyut)
+  except Exception:
     yuzey = pygame.Surface(boyut)
     yuzey.fill((50, 50, 50))
     return yuzey
 
 
-# Görseller artık sabit mantık boyutunda yükleniyor (Kasma biter!)
+# Arka planlarda seffaf=False kullanarak FPS'i ikiye katlıyoruz
 harita_gorselleri = {
-    "mahalle": resim_yukle("mahalle.png", (MANTIK_GENISLIK, MANTIK_YUKSEKLIK)),
-    "baraj": resim_yukle("baraj.png", (MANTIK_GENISLIK, MANTIK_YUKSEKLIK)),
+    "mahalle": resim_yukle(
+        "mahalle.png", (genislik, yukseklik), seffaf=False
+    ),
+    "baraj": resim_yukle("baraj.png", (genislik, yukseklik), seffaf=False),
     "hapishane": resim_yukle(
-        "hapishane.png", (MANTIK_GENISLIK, MANTIK_YUKSEKLIK)
+        "hapishane.png", (genislik, yukseklik), seffaf=False
     ),
 }
 
 karakter_gorselleri = {
-    "savas": resim_yukle("savas.png", (40, 40)),
-    "cio": resim_yukle("cio.png", (40, 40)),
-    "ozgur": resim_yukle("ozgur.png", (40, 40)),
-    "anafor": resim_yukle("anafor.png", (40, 40)),
-    "cihat": resim_yukle("cihat.png", (40, 40)),
-    "gokhan": resim_yukle("gokhan.png", (40, 40)),
+    "savas": resim_yukle("savas.png", (42, 42), seffaf=True),
+    "cio": resim_yukle("cio.png", (42, 42), seffaf=True),
+    "ozgur": resim_yukle("ozgur.png", (42, 42), seffaf=True),
+    "anafor": resim_yukle("anafor.png", (42, 42), seffaf=True),
+    "cihat": resim_yukle("cihat.png", (42, 42), seffaf=True),
+    "gokhan": resim_yukle("gokhan.png", (42, 42), seffaf=True),
 }
 
 harita_iconlari = {
-    k: pygame.transform.scale(v, (35, 50)) for k, v in harita_gorselleri.items()
+    k: pygame.transform.smoothscale(v, (35, 50))
+    for k, v in harita_gorselleri.items()
 }
 karakter_iconlari = {
-    k: pygame.transform.scale(v, (40, 40))
+    k: pygame.transform.smoothscale(v, (40, 40))
     for k, v in karakter_gorselleri.items()
 }
 
@@ -134,7 +174,7 @@ basarimlar_listesi = [
     {
         "id": "basarim_2",
         "baslik": "Puan Makinesi",
-        "aciklama": "Hayatın boyunca 100.000 skor topla.",
+        "aciklama": "Toplam 100.000 skor topla.",
         "hedef": 100000,
         "degisken": "toplam_skor_hayat",
     },
@@ -147,7 +187,7 @@ basarimlar_listesi = [
     },
 ]
 
-KAYIT_DOSYASI = "kayit.json"
+KAYIT_DOSYASI = tam_yol("kayit.json")
 
 
 def verileri_yukle():
@@ -164,19 +204,25 @@ def verileri_yukle():
       "toplam_skor_hayat": 0,
       "kalkan_kirilma": 0,
   }
-  if os.path.exists(KAYIT_DOSYASI):
-    with open(KAYIT_DOSYASI, "r") as dosya:
-      kaydedilen = json.load(dosya)
-      for key in varsayilan:
-        if key not in kaydedilen:
-          kaydedilen[key] = varsayilan[key]
-      return kaydedilen
+  try:
+    if os.path.exists(KAYIT_DOSYASI):
+      with open(KAYIT_DOSYASI, "r", encoding="utf-8") as dosya:
+        kaydedilen = json.load(dosya)
+        for key in varsayilan:
+          if key not in kaydedilen:
+            kaydedilen[key] = varsayilan[key]
+        return kaydedilen
+  except Exception:
+    pass
   return varsayilan
 
 
 def verileri_kaydet(veri):
-  with open(KAYIT_DOSYASI, "w") as dosya:
-    json.dump(veri, dosya)
+  try:
+    with open(KAYIT_DOSYASI, "w", encoding="utf-8") as dosya:
+      json.dump(veri, dosya)
+  except Exception:
+    pass
 
 
 oyuncu_verisi = verileri_yukle()
@@ -201,10 +247,10 @@ def oyunu_sifirla():
   global kus_y, kus_hiz, boru_x, alt_boru_y, skor, skor_alindi, bg_x, partikuller, boru_hareket_yonu
   global kalkan_aktif, olumsuzluk_suresi, guc_var, guc_x, guc_y
 
-  kus_y = MANTIK_YUKSEKLIK // 2
+  kus_y = yukseklik // 2
   kus_hiz = 0
-  boru_x = MANTIK_GENISLIK
-  alt_boru_y = random.randint(300, 550)
+  boru_x = genislik
+  alt_boru_y = random.randint(280, yukseklik - 150)
   skor = 0
   skor_alindi = False
   bg_x = 0
@@ -218,15 +264,20 @@ def oyunu_sifirla():
   guc_y = 0
 
 
-kus_x = 50
+kus_x = 65
 kus_yaricap = 20
-yercekimi = 0.5
-ziplama_gucu = -8
+yercekimi = 0.52
+ziplama_gucu = -8.5
 
 boru_genislik = 70
-boru_orijinal = resim_yukle("demir.png", (boru_genislik, 600))
-boru_hiz = 4
-bosluk = 200
+boru_boyu = max(700, yukseklik)
+boru_orijinal = resim_yukle(
+    "demir.png", (boru_genislik, boru_boyu), seffaf=True
+)
+boru_hiz = 4.5
+bosluk = 190
+
+oyun_yuzeyi = pygame.Surface((genislik, yukseklik))
 
 oyunu_sifirla()
 oyun_durumu = "menu"
@@ -236,27 +287,19 @@ sarsinti_suresi = 0
 magaza_sekmesi = "karakterler"
 gorev_sekmesi = "gorevler"
 
-oyna_butonu = pygame.Rect(100, 230, 200, 50)
-magaza_butonu = pygame.Rect(100, 300, 200, 50)
-gorev_butonu = pygame.Rect(100, 370, 200, 50)
-cikis_butonu = pygame.Rect(100, 440, 200, 50)
-geri_butonu = pygame.Rect(10, 10, 80, 40)
+oyna_butonu = pygame.Rect(100, 240, 200, 50)
+magaza_butonu = pygame.Rect(100, 310, 200, 50)
+gorev_butonu = pygame.Rect(100, 380, 200, 50)
+cikis_butonu = pygame.Rect(100, 450, 200, 50)
+geri_butonu = pygame.Rect(15, 20, 80, 40)
 
-tab_sol_butonu = pygame.Rect(30, 70, 160, 40)
-tab_sag_butonu = pygame.Rect(210, 70, 160, 40)
+tab_sol_butonu = pygame.Rect(20, 75, 175, 42)
+tab_sag_butonu = pygame.Rect(205, 75, 175, 42)
 
-muzik_cal("acilis.mp3")
+muzik_cal("acilis.mp3", -1)
 
 while True:
-  # Dokunmatik / Fare oranını hesapla (Ağır çekimi ve tıklama kaymasını önler)
-  mouse_raw = pygame.mouse.get_pos()
-  olcek = gercek_yukseklik / MANTIK_YUKSEKLIK
-  ofset_x = (gercek_genislik - (MANTIK_GENISLIK * olcek)) // 2
-  mouse_pos = (
-      int((mouse_raw[0] - ofset_x) / olcek),
-      int(mouse_raw[1] / olcek),
-  )
-
+  mouse_pos = pygame.mouse.get_pos()
   tiklandi = False
 
   for event in pygame.event.get():
@@ -271,13 +314,8 @@ while True:
       if oyun_durumu == "oyun":
         kus_hiz = ziplama_gucu
 
-  # Her şeyi önce sanal yüzeye çiziyoruz
-  oyun_yuzeyi.fill((0, 0, 0))
-
   if oyun_durumu == "menu":
-    oyun_yuzeyi.blit(
-        harita_gorselleri[oyuncu_verisi["secili_harita"]], (0, 0)
-    )
+    ekran.blit(harita_gorselleri[oyuncu_verisi["secili_harita"]], (0, 0))
 
     if tiklandi:
       if oyna_butonu.collidepoint(mouse_pos):
@@ -292,68 +330,101 @@ while True:
         pygame.quit()
         sys.exit()
 
-    pygame.draw.rect(
-        oyun_yuzeyi, (50, 205, 50), oyna_butonu, border_radius=10
-    )
-    pygame.draw.rect(
-        oyun_yuzeyi, (255, 140, 0), magaza_butonu, border_radius=10
-    )
-    pygame.draw.rect(
-        oyun_yuzeyi, (70, 130, 180), gorev_butonu, border_radius=10
-    )
-    pygame.draw.rect(
-        oyun_yuzeyi, (220, 20, 60), cikis_butonu, border_radius=10
-    )
+    for btn, rnk, yazi in [
+        (oyna_butonu, (46, 204, 113), "OYNA"),
+        (magaza_butonu, (243, 156, 18), "MAĞAZA"),
+        (gorev_butonu, (52, 152, 219), "GÖREVLER"),
+        (cikis_butonu, (231, 76, 60), "ÇIKIŞ"),
+    ]:
+      pygame.draw.rect(
+          ekran,
+          (20, 20, 20),
+          (btn.x + 2, btn.y + 3, btn.width, btn.height),
+          border_radius=12,
+      )
+      pygame.draw.rect(ekran, rnk, btn, border_radius=12)
+      y_yuzey = font.render(yazi, True, (255, 255, 255))
+      ekran.blit(
+          y_yuzey,
+          (
+              btn.centerx - y_yuzey.get_width() // 2,
+              btn.centery - y_yuzey.get_height() // 2,
+          ),
+      )
 
-    oyun_yuzeyi.blit(font.render("OYNA", True, (255, 255, 255)), (160, 240))
-    oyun_yuzeyi.blit(font.render("MAĞAZA", True, (255, 255, 255)), (145, 310))
-    oyun_yuzeyi.blit(
-        font.render("GÖREVLER", True, (255, 255, 255)), (130, 380)
-    )
-    oyun_yuzeyi.blit(font.render("ÇIKIŞ", True, (255, 255, 255)), (160, 450))
+    # Üst bilgi paneli (Yazıların arka planda kaybolmasını önler)
+    panel = pygame.Surface((240, 145), pygame.SRCALPHA)
+    pygame.draw.rect(panel, (0, 0, 0, 140), (0, 0, 240, 145), border_radius=15)
+    ekran.blit(panel, (80, 65))
 
     fonlu_yazi_ciz(
-        oyun_yuzeyi, f"Son Skor: {son_skor}", font, (255, 255, 255), 130, 70
+        ekran,
+        f"Son Skor: {son_skor}",
+        font,
+        (255, 255, 255),
+        genislik // 2,
+        80,
+        ortala=True,
     )
     fonlu_yazi_ciz(
-        oyun_yuzeyi,
+        ekran,
         f"Rekor: {oyuncu_verisi['en_yuksek_skor']}",
         font,
-        (50, 255, 50),
-        140,
+        (46, 204, 113),
+        genislik // 2,
         120,
+        ortala=True,
     )
     fonlu_yazi_ciz(
-        oyun_yuzeyi,
+        ekran,
         f"Altın: {oyuncu_verisi['altin']}",
         font,
-        (255, 215, 0),
-        140,
-        170,
+        (241, 196, 15),
+        genislik // 2,
+        160,
+        ortala=True,
     )
 
   elif oyun_durumu == "gorevler":
-    oyun_yuzeyi.fill((40, 40, 50))
-    pygame.draw.rect(oyun_yuzeyi, (200, 0, 0), geri_butonu, border_radius=5)
-    oyun_yuzeyi.blit(
-        kucuk_font.render("Geri", True, (255, 255, 255)), (25, 17)
+    ekran.fill((30, 34, 42))
+
+    pygame.draw.rect(ekran, (231, 76, 60), geri_butonu, border_radius=8)
+    geri_yazi = kucuk_font.render("Geri", True, (255, 255, 255))
+    ekran.blit(
+        geri_yazi,
+        (
+            geri_butonu.centerx - geri_yazi.get_width() // 2,
+            geri_butonu.centery - geri_yazi.get_height() // 2,
+        ),
     )
     if tiklandi and geri_butonu.collidepoint(mouse_pos):
       oyun_durumu = "menu"
 
     renk_sol = (
-        (70, 130, 180) if gorev_sekmesi == "gorevler" else (100, 100, 100)
+        (52, 152, 219) if gorev_sekmesi == "gorevler" else (70, 75, 85)
     )
     renk_sag = (
-        (70, 130, 180) if gorev_sekmesi == "basarimlar" else (100, 100, 100)
+        (52, 152, 219) if gorev_sekmesi == "basarimlar" else (70, 75, 85)
     )
-    pygame.draw.rect(oyun_yuzeyi, renk_sol, tab_sol_butonu, border_radius=5)
-    pygame.draw.rect(oyun_yuzeyi, renk_sag, tab_sag_butonu, border_radius=5)
-    oyun_yuzeyi.blit(
-        kucuk_font.render("Görevler", True, (255, 255, 255)), (70, 78)
+
+    pygame.draw.rect(ekran, renk_sol, tab_sol_butonu, border_radius=8)
+    pygame.draw.rect(ekran, renk_sag, tab_sag_butonu, border_radius=8)
+
+    sol_yazi = kucuk_font.render("Görevler", True, (255, 255, 255))
+    sag_yazi = kucuk_font.render("Başarımlar", True, (255, 255, 255))
+    ekran.blit(
+        sol_yazi,
+        (
+            tab_sol_butonu.centerx - sol_yazi.get_width() // 2,
+            tab_sol_butonu.centery - sol_yazi.get_height() // 2,
+        ),
     )
-    oyun_yuzeyi.blit(
-        kucuk_font.render("Başarımlar", True, (255, 255, 255)), (245, 78)
+    ekran.blit(
+        sag_yazi,
+        (
+            tab_sag_butonu.centerx - sag_yazi.get_width() // 2,
+            tab_sag_butonu.centery - sag_yazi.get_height() // 2,
+        ),
     )
 
     if tiklandi:
@@ -364,73 +435,71 @@ while True:
 
     if gorev_sekmesi == "gorevler":
       for i, gorev in enumerate(gorevler_listesi):
-        kutu = pygame.Rect(20, 130 + (i * 100), 360, 85)
-        pygame.draw.rect(oyun_yuzeyi, (60, 60, 70), kutu, border_radius=8)
-        ilerleme = (
-            son_skor
-            if gorev["id"] == "gorev_1"
-            and son_skor < gorev["hedef"]
-            else (
-                oyuncu_verisi["toplam_kalkan"]
-                if gorev["id"] == "gorev_2"
-                and oyuncu_verisi["toplam_kalkan"] < gorev["hedef"]
-                else (
-                    oyuncu_verisi["en_yuksek_skor"]
-                    if gorev["id"] == "gorev_3"
-                    and oyuncu_verisi["en_yuksek_skor"] < gorev["hedef"]
-                    else gorev["hedef"]
-                )
-            )
-        )
+        kutu = pygame.Rect(15, 135 + (i * 100), 370, 88)
+        pygame.draw.rect(ekran, (45, 50, 62), kutu, border_radius=10)
+
+        if gorev["id"] == "gorev_1":
+          ilerleme = min(son_skor, gorev["hedef"])
+        elif gorev["id"] == "gorev_2":
+          ilerleme = min(oyuncu_verisi["toplam_kalkan"], gorev["hedef"])
+        else:
+          ilerleme = min(oyuncu_verisi["en_yuksek_skor"], gorev["hedef"])
+
         durum = oyuncu_verisi["gorevler"][gorev["id"]]
-        oyun_yuzeyi.blit(
+
+        ekran.blit(
             kucuk_font.render(gorev["baslik"], True, (255, 255, 255)),
-            (kutu.x + 10, kutu.y + 10),
+            (kutu.x + 12, kutu.y + 10),
         )
-        oyun_yuzeyi.blit(
+        ekran.blit(
             en_kucuk_font.render(
-                gorev["aciklama"], True, (200, 200, 200)
+                gorev["aciklama"], True, (200, 205, 215)
             ),
-            (kutu.x + 10, kutu.y + 35),
+            (kutu.x + 12, kutu.y + 36),
         )
+
         durum_metni = (
             "Tamamlandı"
             if durum == 2
-            else f"İlerleme: {ilerleme}/{gorev['hedef']}"
+            else f"İlerleme: {ilerleme} / {gorev['hedef']}"
         )
-        renk_durum = (100, 100, 100) if durum == 2 else (255, 215, 0)
-        oyun_yuzeyi.blit(
+        renk_durum = (130, 135, 145) if durum == 2 else (241, 196, 15)
+        ekran.blit(
             en_kucuk_font.render(durum_metni, True, renk_durum),
-            (kutu.x + 10, kutu.y + 60),
+            (kutu.x + 12, kutu.y + 62),
         )
 
-        buton_kutu = pygame.Rect(kutu.x + 230, kutu.y + 20, 120, 45)
+        buton_kutu = pygame.Rect(kutu.right - 120, kutu.y + 22, 108, 44)
         if durum == 0:
           pygame.draw.rect(
-              oyun_yuzeyi, (100, 100, 100), buton_kutu, border_radius=5
+              ekran, (80, 85, 95), buton_kutu, border_radius=8
           )
           metin_yuzey = kucuk_font.render(
-              f"{gorev['odul']} Altın", True, (200, 200, 200)
+              f"{gorev['odul']} Altın", True, (210, 210, 210)
           )
         elif durum == 1:
           pygame.draw.rect(
-              oyun_yuzeyi, (50, 205, 50), buton_kutu, border_radius=5
+              ekran, (46, 204, 113), buton_kutu, border_radius=8
           )
           metin_yuzey = kucuk_font.render(
               "ÖDÜLÜ AL", True, (255, 255, 255)
           )
         else:
           pygame.draw.rect(
-              oyun_yuzeyi, (50, 50, 50), buton_kutu, border_radius=5
+              ekran, (35, 40, 50), buton_kutu, border_radius=8
           )
-          metin_yuzey = kucuk_font.render("ALINDI", True, (150, 150, 150))
-        oyun_yuzeyi.blit(
+          metin_yuzey = kucuk_font.render(
+              "ALINDI", True, (130, 130, 130)
+          )
+
+        ekran.blit(
             metin_yuzey,
             (
                 buton_kutu.centerx - metin_yuzey.get_width() // 2,
                 buton_kutu.centery - metin_yuzey.get_height() // 2,
             ),
         )
+
         if tiklandi and buton_kutu.collidepoint(mouse_pos) and durum == 1:
           oyuncu_verisi["altin"] += gorev["odul"]
           oyuncu_verisi["gorevler"][gorev["id"]] = 2
@@ -438,83 +507,105 @@ while True:
 
     elif gorev_sekmesi == "basarimlar":
       for i, basarim in enumerate(basarimlar_listesi):
-        kutu = pygame.Rect(20, 130 + (i * 100), 360, 85)
-        pygame.draw.rect(oyun_yuzeyi, (70, 50, 50), kutu, border_radius=8)
+        kutu = pygame.Rect(15, 135 + (i * 100), 370, 88)
+        pygame.draw.rect(ekran, (55, 42, 48), kutu, border_radius=10)
+
         ilerleme = min(
             oyuncu_verisi[basarim["degisken"]], basarim["hedef"]
         )
         tamamlandi_mi = ilerleme >= basarim["hedef"]
-        oyun_yuzeyi.blit(
-            kucuk_font.render(basarim["baslik"], True, (255, 215, 0)),
-            (kutu.x + 10, kutu.y + 10),
+
+        ekran.blit(
+            kucuk_font.render(basarim["baslik"], True, (241, 196, 15)),
+            (kutu.x + 12, kutu.y + 10),
         )
-        oyun_yuzeyi.blit(
+        ekran.blit(
             en_kucuk_font.render(
-                basarim["aciklama"], True, (200, 200, 200)
+                basarim["aciklama"], True, (210, 210, 210)
             ),
-            (kutu.x + 10, kutu.y + 35),
+            (kutu.x + 12, kutu.y + 35),
         )
+
         if tamamlandi_mi:
           fonlu_yazi_ciz(
-              oyun_yuzeyi,
+              ekran,
               "EFSANE TAMAMLANDI!",
               kucuk_font,
-              (50, 255, 50),
-              kutu.x + 10,
+              (46, 204, 113),
+              kutu.x + 12,
               kutu.y + 60,
           )
         else:
-          oyun_yuzeyi.blit(
-              en_kucuk_font.render(
-                  f"İlerleme: {ilerleme} / {basarim['hedef']}",
-                  True,
-                  (255, 255, 255),
-              ),
-              (kutu.x + 10, kutu.y + 60),
+          ilerleme_yazi = en_kucuk_font.render(
+              f"{ilerleme} / {basarim['hedef']}", True, (255, 255, 255)
           )
-          bar_arkaplan = pygame.Rect(kutu.x + 150, kutu.y + 60, 190, 15)
+          ekran.blit(ilerleme_yazi, (kutu.x + 12, kutu.y + 60))
+
+          bar_x = kutu.x + 135
+          bar_gen = kutu.width - 150
+          bar_arkaplan = pygame.Rect(bar_x, kutu.y + 62, bar_gen, 14)
           pygame.draw.rect(
-              oyun_yuzeyi, (30, 30, 30), bar_arkaplan, border_radius=3
+              ekran, (25, 20, 25), bar_arkaplan, border_radius=6
           )
+
           if ilerleme > 0:
-            doluluk = (ilerleme / basarim["hedef"]) * 190
-            bar_dolu = pygame.Rect(
-                kutu.x + 150, kutu.y + 60, int(doluluk), 15
-            )
+            doluluk = max(4, int((ilerleme / basarim["hedef"]) * bar_gen))
+            bar_dolu = pygame.Rect(bar_x, kutu.y + 62, doluluk, 14)
             pygame.draw.rect(
-                oyun_yuzeyi, (255, 140, 0), bar_dolu, border_radius=3
+                ekran, (243, 156, 18), bar_dolu, border_radius=6
             )
 
   elif oyun_durumu == "magaza":
-    oyun_yuzeyi.fill((30, 30, 30))
-    pygame.draw.rect(oyun_yuzeyi, (200, 0, 0), geri_butonu, border_radius=5)
-    oyun_yuzeyi.blit(
-        kucuk_font.render("Geri", True, (255, 255, 255)), (25, 17)
+    ekran.fill((28, 30, 36))
+
+    pygame.draw.rect(ekran, (231, 76, 60), geri_butonu, border_radius=8)
+    geri_yazi = kucuk_font.render("Geri", True, (255, 255, 255))
+    ekran.blit(
+        geri_yazi,
+        (
+            geri_butonu.centerx - geri_yazi.get_width() // 2,
+            geri_butonu.centery - geri_yazi.get_height() // 2,
+        ),
     )
     if tiklandi and geri_butonu.collidepoint(mouse_pos):
       oyun_durumu = "menu"
+
     fonlu_yazi_ciz(
-        oyun_yuzeyi,
+        ekran,
         f"Cüzdan: {oyuncu_verisi['altin']} Altın",
         font,
-        (255, 215, 0),
-        120,
-        12,
+        (241, 196, 15),
+        115,
+        25,
     )
 
     renk_sol = (
-        (50, 205, 50) if magaza_sekmesi == "karakterler" else (100, 100, 100)
+        (46, 204, 113)
+        if magaza_sekmesi == "karakterler"
+        else (70, 75, 85)
     )
     renk_sag = (
-        (50, 205, 50) if magaza_sekmesi == "haritalar" else (100, 100, 100)
+        (46, 204, 113) if magaza_sekmesi == "haritalar" else (70, 75, 85)
     )
-    pygame.draw.rect(oyun_yuzeyi, renk_sol, tab_sol_butonu, border_radius=5)
-    pygame.draw.rect(oyun_yuzeyi, renk_sag, tab_sag_butonu, border_radius=5)
-    oyun_yuzeyi.blit(
-        kucuk_font.render("Karakterler", True, (255, 255, 255)), (60, 80)
+
+    pygame.draw.rect(ekran, renk_sol, tab_sol_butonu, border_radius=8)
+    pygame.draw.rect(ekran, renk_sag, tab_sag_butonu, border_radius=8)
+
+    sol_yazi = kucuk_font.render("Karakterler", True, (255, 255, 255))
+    sag_yazi = kucuk_font.render("Haritalar", True, (255, 255, 255))
+    ekran.blit(
+        sol_yazi,
+        (
+            tab_sol_butonu.centerx - sol_yazi.get_width() // 2,
+            tab_sol_butonu.centery - sol_yazi.get_height() // 2,
+        ),
     )
-    oyun_yuzeyi.blit(
-        kucuk_font.render("Haritalar", True, (255, 255, 255)), (255, 80)
+    ekran.blit(
+        sag_yazi,
+        (
+            tab_sag_butonu.centerx - sag_yazi.get_width() // 2,
+            tab_sag_butonu.centery - sag_yazi.get_height() // 2,
+        ),
     )
 
     if tiklandi:
@@ -523,56 +614,63 @@ while True:
       elif tab_sag_butonu.collidepoint(mouse_pos):
         magaza_sekmesi = "haritalar"
 
-    aktif_liste, aktif_ikonlar, kayit_sahip, kayit_secili = (
-        (
-            magaza_karakterler,
-            karakter_iconlari,
-            "sahip_karakterler",
-            "secili_karakter",
-        )
-        if magaza_sekmesi == "karakterler"
-        else (magaza_haritalar, harita_iconlari, "sahip_haritalar", "secili_harita")
-    )
+    if magaza_sekmesi == "karakterler":
+      aktif_liste = magaza_karakterler
+      aktif_ikonlar = karakter_iconlari
+      kayit_sahip = "sahip_karakterler"
+      kayit_secili = "secili_karakter"
+    else:
+      aktif_liste = magaza_haritalar
+      aktif_ikonlar = harita_iconlari
+      kayit_sahip = "sahip_haritalar"
+      kayit_secili = "secili_harita"
 
     for i, urun in enumerate(aktif_liste):
-      liste_kutusu = pygame.Rect(20, 130 + (i * 75), 360, 60)
-      pygame.draw.rect(oyun_yuzeyi, (50, 50, 50), liste_kutusu, border_radius=8)
+      liste_kutusu = pygame.Rect(15, 130 + (i * 72), 370, 60)
+      pygame.draw.rect(ekran, (45, 48, 56), liste_kutusu, border_radius=10)
+
       sahip_mi = urun["id"] in oyuncu_verisi[kayit_sahip]
       secili_mi = oyuncu_verisi[kayit_secili] == urun["id"]
+
       ikon_y = (
           liste_kutusu.y + 10
           if magaza_sekmesi == "karakterler"
           else liste_kutusu.y + 5
       )
-      oyun_yuzeyi.blit(
-          aktif_ikonlar[urun["id"]], (liste_kutusu.x + 10, ikon_y)
+      ekran.blit(aktif_ikonlar[urun["id"]], (liste_kutusu.x + 12, ikon_y))
+      isim_yuzey = font.render(urun["isim"], True, (255, 255, 255))
+      ekran.blit(
+          isim_yuzey,
+          (
+              liste_kutusu.x + 65,
+              liste_kutusu.centery - isim_yuzey.get_height() // 2,
+          ),
       )
-      oyun_yuzeyi.blit(
-          font.render(urun["isim"], True, (255, 255, 255)),
-          (liste_kutusu.x + 70, liste_kutusu.y + 12),
-      )
+
       buton_kutusu = pygame.Rect(
-          liste_kutusu.x + 240, liste_kutusu.y + 10, 110, 40
+          liste_kutusu.right - 120, liste_kutusu.y + 10, 108, 40
       )
       buton_renk = (
-          (50, 205, 50)
+          (46, 204, 113)
           if secili_mi
-          else ((100, 149, 237) if sahip_mi else (220, 20, 60))
+          else ((52, 152, 219) if sahip_mi else (231, 76, 60))
       )
       buton_metin = (
           "Seçili"
           if secili_mi
           else ("Seç" if sahip_mi else f"{urun['fiyat']} Altın")
       )
-      pygame.draw.rect(oyun_yuzeyi, buton_renk, buton_kutusu, border_radius=5)
+
+      pygame.draw.rect(ekran, buton_renk, buton_kutusu, border_radius=8)
       metin_yuzey = kucuk_font.render(buton_metin, True, (255, 255, 255))
-      oyun_yuzeyi.blit(
+      ekran.blit(
           metin_yuzey,
           (
               buton_kutusu.centerx - metin_yuzey.get_width() // 2,
               buton_kutusu.centery - metin_yuzey.get_height() // 2,
           ),
       )
+
       if tiklandi and buton_kutusu.collidepoint(mouse_pos):
         if sahip_mi:
           oyuncu_verisi[kayit_secili] = urun["id"]
@@ -587,15 +685,16 @@ while True:
     if oyun_durumu == "oyun":
       if tiklandi:
         kus_hiz = ziplama_gucu
+
       kus_hiz += yercekimi
       kus_y += kus_hiz
       boru_x -= boru_hiz
 
       if boru_hareket_yonu != 0:
         alt_boru_y += 2 * boru_hareket_yonu
-        if alt_boru_y > 600:
+        if alt_boru_y > yukseklik - 120:
           boru_hareket_yonu = -1
-        elif alt_boru_y < 200:
+        elif alt_boru_y < 250:
           boru_hareket_yonu = 1
 
       if guc_var:
@@ -607,6 +706,7 @@ while True:
             kus_yaricap * 2,
             kus_yaricap * 2,
         )
+
         if kus_kutu.colliderect(guc_kutu):
           kalkan_aktif = True
           guc_var = False
@@ -618,42 +718,43 @@ while True:
             oyuncu_verisi["gorevler"]["gorev_2"] = 1
           verileri_kaydet(oyuncu_verisi)
 
-      bg_x -= 1
-      if bg_x <= -MANTIK_GENISLIK:
+      bg_x -= 1.5
+      if bg_x <= -genislik:
         bg_x = 0
 
       if random.randint(1, 3) == 1:
         partikuller.append(
             [kus_x - 15, kus_y + random.randint(-10, 10), random.randint(2, 5)]
         )
+
       for p in partikuller[:]:
         p[0] -= 2
-        p[2] -= 0.1
+        p[2] -= 0.15
         if p[2] <= 0:
           partikuller.remove(p)
 
       if boru_x < -boru_genislik:
-        boru_x = MANTIK_GENISLIK
-        alt_boru_y = random.randint(300, 550)
+        boru_x = genislik
+        alt_boru_y = random.randint(280, yukseklik - 150)
         skor_alindi = False
-        guc_var = (
-            True
-            if (not kalkan_aktif and random.randint(1, 5) == 1)
-            else False
-        )
-        if guc_var:
-          guc_x = MANTIK_GENISLIK + boru_genislik + 50
-          guc_y = random.randint(200, 500)
-        boru_hareket_yonu = (
-            random.choice([-1, 1])
-            if (skor >= 5 and random.randint(0, 1) == 1)
-            else 0
-        )
+
+        if not kalkan_aktif and random.randint(1, 5) == 1:
+          guc_var = True
+          guc_x = genislik + boru_genislik + 50
+          guc_y = random.randint(200, yukseklik - 200)
+        else:
+          guc_var = False
+
+        if skor >= 5 and random.randint(0, 1) == 1:
+          boru_hareket_yonu = random.choice([-1, 1])
+        else:
+          boru_hareket_yonu = 0
 
       if kus_x > boru_x + boru_genislik and not skor_alindi:
         skor += 1
         skor_alindi = True
         skor_sesi.play()
+
         if oyuncu_verisi["gorevler"]["gorev_1"] == 0 and skor >= 10:
           oyuncu_verisi["gorevler"]["gorev_1"] = 1
           verileri_kaydet(oyuncu_verisi)
@@ -668,17 +769,19 @@ while True:
           kus_yaricap * 2,
       )
       ust_boru_kutu = pygame.Rect(
-          boru_x, alt_boru_y - bosluk - 600, boru_genislik, 600
+          boru_x, alt_boru_y - bosluk - boru_boyu, boru_genislik, boru_boyu
       )
-      alt_boru_kutu = pygame.Rect(boru_x, alt_boru_y, boru_genislik, 600)
+      alt_boru_kutu = pygame.Rect(
+          boru_x, alt_boru_y, boru_genislik, boru_boyu
+      )
 
       if (
           kus_kutu.colliderect(ust_boru_kutu)
           or kus_kutu.colliderect(alt_boru_kutu)
-          or kus_y > MANTIK_YUKSEKLIK
+          or kus_y > yukseklik
           or kus_y < 0
       ) and olumsuzluk_suresi == 0:
-        if kalkan_aktif and (0 < kus_y < MANTIK_YUKSEKLIK):
+        if kalkan_aktif and (0 < kus_y < yukseklik):
           kalkan_aktif = False
           olumsuzluk_suresi = 60
           oyuncu_verisi["kalkan_kirilma"] += 1
@@ -688,93 +791,93 @@ while True:
           oyuncu_verisi["altin"] += skor
           oyuncu_verisi["toplam_olum"] += 1
           oyuncu_verisi["toplam_skor_hayat"] += skor
+
           if skor > oyuncu_verisi["en_yuksek_skor"]:
             oyuncu_verisi["en_yuksek_skor"] = skor
+
           if (
               oyuncu_verisi["gorevler"]["gorev_3"] == 0
               and oyuncu_verisi["en_yuksek_skor"] >= 25
           ):
             oyuncu_verisi["gorevler"]["gorev_3"] = 1
+
           verileri_kaydet(oyuncu_verisi)
+          olum_sesi.play()
           muzik_cal("olum.mp3")
           oyun_durumu = "sarsinti"
           sarsinti_suresi = 15
 
-    oyun_yuzeyi.blit(
-        harita_gorselleri[oyuncu_verisi["secili_harita"]], (bg_x, 0)
+    # Kasmayı önlemek için normal oyunda doğrudan 'ekran'a, sadece sarsıntıda 'oyun_yuzeyi'ne çiziyoruz
+    hedef_yuzey = oyun_yuzeyi if oyun_durumu == "sarsinti" else ekran
+
+    hedef_yuzey.blit(
+        harita_gorselleri[oyuncu_verisi["secili_harita"]], (int(bg_x), 0)
     )
-    oyun_yuzeyi.blit(
+    hedef_yuzey.blit(
         harita_gorselleri[oyuncu_verisi["secili_harita"]],
-        (bg_x + MANTIK_GENISLIK, 0),
+        (int(bg_x) + genislik, 0),
     )
-    oyun_yuzeyi.blit(boru_orijinal, (boru_x, alt_boru_y - bosluk - 600))
-    oyun_yuzeyi.blit(boru_orijinal, (boru_x, alt_boru_y))
+
+    hedef_yuzey.blit(
+        boru_orijinal, (int(boru_x), int(alt_boru_y - bosluk - boru_boyu))
+    )
+    hedef_yuzey.blit(boru_orijinal, (int(boru_x), int(alt_boru_y)))
 
     if guc_var:
       pygame.draw.circle(
-          oyun_yuzeyi, (0, 255, 255), (int(guc_x), int(guc_y)), 15
+          hedef_yuzey, (0, 255, 255), (int(guc_x), int(guc_y)), 15
       )
       pygame.draw.circle(
-          oyun_yuzeyi, (255, 255, 255), (int(guc_x), int(guc_y)), 8
+          hedef_yuzey, (255, 255, 255), (int(guc_x), int(guc_y)), 8
       )
 
     for p in partikuller:
       pygame.draw.circle(
-          oyun_yuzeyi, (220, 220, 220), (int(p[0]), int(p[1])), int(p[2])
+          hedef_yuzey, (220, 220, 220), (int(p[0]), int(p[1])), int(p[2])
       )
 
-    oyun_yuzeyi.blit(
+    hedef_yuzey.blit(
         karakter_gorselleri[oyuncu_verisi["secili_karakter"]],
-        (kus_x - kus_yaricap, int(kus_y) - kus_yaricap),
+        (int(kus_x) - kus_yaricap, int(kus_y) - kus_yaricap),
     )
 
     if kalkan_aktif:
       pygame.draw.circle(
-          oyun_yuzeyi, (0, 255, 255), (int(kus_x), int(kus_y)), kus_yaricap + 5, 3
+          hedef_yuzey,
+          (0, 255, 255),
+          (int(kus_x), int(kus_y)),
+          kus_yaricap + 5,
+          3,
       )
     elif olumsuzluk_suresi > 0 and (olumsuzluk_suresi % 10 < 5):
       pygame.draw.circle(
-          oyun_yuzeyi,
+          hedef_yuzey,
           (255, 50, 50),
           (int(kus_x), int(kus_y)),
           kus_yaricap + 5,
           3,
       )
 
-    skor_metni = str(skor)
-    skor_genisligi = font.size(skor_metni)[0]
     fonlu_yazi_ciz(
-        oyun_yuzeyi,
-        skor_metni,
+        hedef_yuzey,
+        str(skor),
         font,
         (255, 255, 255),
-        (MANTIK_GENISLIK // 2) - (skor_genisligi // 2),
-        50,
+        genislik // 2,
+        45,
+        ortala=True,
     )
 
     if oyun_durumu == "sarsinti":
       sarsinti_suresi -= 1
-      sx = random.randint(-10, 10)
-      sy = random.randint(-10, 10)
-      # Sarsıntıyı ana ekrana ölçekleyerek yansıt
-      scaled_surface = pygame.transform.scale(
-          oyun_yuzeyi,
-          (int(MANTIK_GENISLIK * olcek), int(MANTIK_YUKSEKLIK * olcek)),
-      )
+      sx = random.randint(-8, 8)
+      sy = random.randint(-8, 8)
       ekran.fill((0, 0, 0))
-      ekran.blit(scaled_surface, (ofset_x + sx, sy))
+      ekran.blit(oyun_yuzeyi, (sx, sy))
+
       if sarsinti_suresi <= 0:
         oyun_durumu = "menu"
-      pygame.display.update()
-      saat.tick(fps)
-      continue
+        muzik_cal("acilis.mp3", -1)
 
-  # --- SANAL YÜZEYİ TELEFONA AKICI ŞEKilde ÖLÇEKLEP BAS ---
-  scaled_surface = pygame.transform.scale(
-      oyun_yuzeyi, (int(MANTIK_GENISLIK * olcek), int(MANTIK_YUKSEKLIK * olcek))
-  )
-  ekran.fill((0, 0, 0))
-  ekran.blit(scaled_surface, (ofset_x, 0))
-
-  pygame.display.update()
+  pygame.display.flip()
   saat.tick(fps)
